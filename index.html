@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Syllabus Video Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+    <!-- YouTube Iframe Player API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <!-- Marked.js for Markdown to HTML conversion -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/13.0.0/marked.min.js"></script>
+    <style>
+        html, body {
+            overflow-x: hidden; /* Prevent horizontal scrolling of the entire page */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+            min-height: 100vh; /* Ensure body takes full viewport height */
+            display: flex;
+            flex-direction: column;
+            margin: 0; /* Remove default body margin */
+        }
+        .container {
+            max-width: 1200px; /* Increased max-width for wider layout */
+            flex-grow: 1; /* Allow container to grow and take available space */
+            margin: 2rem auto; /* Add vertical margin and center horizontally */
+            padding: 0 1rem; /* Add horizontal padding to container itself */
+            box-sizing: border-box; /* Include padding/border in height calculation */
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* Message Box styles */
+        .message-box {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 500;
+        }
+        .message-box.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .message-box.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6fb;
+        }
+        .message-box.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        /* Responsive YouTube player container */
+        .video-container {
+            position: relative;
+            width: 100%;
+            padding-bottom: 56.25%; /* 16:9 Aspect Ratio (divide 9 by 16 = 0.5625) */
+            height: 0;
+            overflow: hidden;
+            background-color: #000;
+            border-radius: 8px;
+        }
+        .video-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+
+        /* Flashcard specific styles */
+        .flashcard {
+            background-color: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            transition: all 0.2s ease-in-out;
+            min-height: 80px; /* Ensure a minimum height for consistent appearance */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        .flashcard:hover {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        .flashcard-front {
+            font-weight: 600;
+            color: #333;
+        }
+        .flashcard-back {
+            color: #666;
+            display: none; /* Hidden by default */
+        }
+        .flashcard.flipped .flashcard-back {
+            display: block;
+        }
+        .flashcard.flipped .flashcard-front {
+            display: none;
+        }
+
+        /* Custom styles for the new layout */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr; /* Left panel takes 1 part, right takes 2 parts */
+            gap: 1.5rem; /* Gap between columns */
+            height: calc(100vh - 4rem); /* Fixed height for the grid, accounting for body padding */
+            box-sizing: border-box; /* Include padding/border in height calculation */
+            min-height: 0; /* Allow grid items to shrink */
+        }
+
+        .left-panel {
+            background-color: #fff;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: 100%; /* Take full height of its grid cell */
+            box-sizing: border-box;
+        }
+
+        .topics-scroll-area { /* New div for scrollable topics */
+            flex-grow: 1; /* Allows it to fill space within left-panel */
+            overflow-y: auto; /* Makes it scrollable */
+            padding-right: 0.5rem; /* Little padding for scrollbar */
+            /* Add some margin-top to separate from previous content if needed */
+            margin-top: 1rem;
+        }
+
+        .right-panel {
+            background-color: #fff;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: 100%; /* Take full height of its grid cell */
+            box-sizing: border-box;
+        }
+
+        .tab-button {
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem 0.5rem 0 0;
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            color: #6b7280; /* Gray-500 */
+        }
+
+        .tab-button.active {
+            background-color: #f0f2f5; /* Lighter background for active tab */
+            border-bottom-color: #3b82f6; /* Blue-500 for active indicator */
+            color: #1f2937; /* Darker text for active tab */
+        }
+
+        .tab-button:hover:not(.active) {
+            background-color: #e5e7eb; /* Gray-200 */
+        }
+        .content-display-area {
+            flex-grow: 1; /* Allow content area to take remaining height */
+            padding: 1.5rem;
+            background-color: #f0f2f5; /* Match active tab background */
+            border-radius: 0 0 0.5rem 0.5rem; /* Rounded corners at bottom */
+            overflow-y: auto; /* Enable scrolling if content overflows */
+            min-height: 150px; /* Minimum height for the content area */
+        }
+
+        /* Styling for Markdown-rendered content within content-display-area */
+        .content-display-area h1 {
+            font-size: 2.5rem; /* Larger for main heading */
+            font-weight: 800; /* Extra bold */
+            color: #1a202c; /* gray-900 */
+            margin-bottom: 1.5rem; /* mb-6 */
+            padding-bottom: 0.75rem; /* More padding */
+            border-bottom: 3px solid #cbd5e0; /* Thicker border */
+        }
+
+        .content-display-area h2 {
+            font-size: 2rem; /* text-3xl */
+            font-weight: 700; /* font-bold */
+            color: #2d3748; /* gray-800 */
+            margin-top: 2.5rem; /* More top margin */
+            margin-bottom: 1.25rem; /* More bottom margin */
+        }
+
+        .content-display-area h3 {
+            font-size: 1.75rem; /* Larger than text-2xl for better differentiation */
+            font-weight: 600; /* font-semibold */
+            color: #4a5568; /* gray-700 */
+            margin-top: 2rem; /* More top margin */
+            margin-bottom: 1rem; /* More bottom margin */
+        }
+
+        .content-display-area p {
+            margin-bottom: 1.25rem; /* More bottom margin for paragraphs */
+            line-height: 1.7; /* Improved line height for readability */
+            color: #4a5568; /* gray-700 */
+            word-break: break-word; /* Ensure long words break */
+            overflow-wrap: break-word; /* Alternative for word-break */
+        }
+
+        .content-display-area ul,
+        .content-display-area ol {
+            list-style-position: outside;
+            margin-left: 2rem; /* Increased indentation */
+            margin-bottom: 1.25rem; /* More bottom margin */
+        }
+
+        .content-display-area ul li {
+            list-style-type: disc;
+            margin-bottom: 0.75rem; /* More spacing between list items */
+            color: #4a5568; /* gray-700 */
+        }
+
+        .content-display-area ol li {
+            list-style-type: decimal;
+            margin-bottom: 0.75rem; /* More spacing between list items */
+            color: #4a5568; /* gray-700 */
+        }
+        .content-display-area pre {
+            background-color: #e2e8f0; /* bg-gray-200 */
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto; /* Enable horizontal scroll for code blocks */
+            margin-bottom: 1.5rem; /* More margin below code blocks */
+            white-space: pre-wrap; /* Ensure text wraps within pre */
+            word-wrap: break-word; /* Break long words in pre */
+        }
+        .content-display-area code {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+            background-color: #edf2f7; /* bg-gray-100 */
+            padding: 0.2em 0.4em;
+            border-radius: 0.25rem;
+            font-size: 0.9em; /* Slightly larger font size for code */
+            color: #c53030; /* a distinct color for inline code */
+        }
+        .content-display-area pre code { /* Specific style for code inside pre */
+            background-color: transparent; /* No background for code inside pre, as pre has its own */
+            padding: 0;
+            color: inherit; /* Inherit color from pre text */
+            font-size: inherit;
+        }
+
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .main-grid {
+                grid-template-columns: 1fr; /* Stack columns on smaller screens */
+                height: auto; /* Auto height on mobile */
+            }
+            .left-panel, .right-panel {
+                min-height: auto;
+                height: auto; /* Auto height on mobile */
+            }
+            .content-display-area {
+                min-height: 150px; /* Smaller min-height on mobile */
+            }
+            .topics-scroll-area {
+                overflow-y: auto; /* Ensure scrolling still works on mobile */
+                max-height: 300px; /* Limit height of topics on mobile to not take up too much screen */
+            }
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="container mx-auto mt-8 mb-8 main-grid">
+        <!-- Left Panel -->
+        <div class="left-panel">
+            <div class="mb-6 flex-shrink-0">
+                <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Syllabus AI Course</h1>
+                <div class="mb-6 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <label for="pdfInput" class="cursor-pointer">
+                        <div class="flex flex-col items-center justify-center py-4">
+                            <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 0115.9 6H16a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h2"></path>
+                            </svg>
+                            <p class="mt-2 text-lg text-gray-600">Drag & drop PDF, or <span class="text-blue-600 font-semibold">click to upload</span></p>
+                            <p class="text-sm text-gray-500">(Max file size: 10MB)</p>
+                        </div>
+                        <input type="file" id="pdfInput" accept=".pdf" class="hidden">
+                    </label>
+                </div>
+
+                <button id="processSyllabusBtn"
+                        class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 flex items-center justify-center"
+                        disabled>
+                    <span id="buttonText">Process Syllabus</span>
+                    <div id="loadingSpinner" class="loading-spinner ml-3 hidden"></div>
+                </button>
+            </div>
+
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 flex-shrink-0 hidden" id="resultsTitle">Course Topics</h2>
+            <div class="topics-scroll-area"> <!-- Added new scroll area for topics -->
+                <div id="topicsContainer" class="space-y-3">
+                    <!-- Topic titles will be inserted here -->
+                    <p id="noResultsMessage" class="text-gray-500 text-center py-8">Upload a PDF to generate topics.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel (Main Content Area) -->
+        <div class="right-panel">
+            <!-- Video Player Section -->
+            <div id="videoPlayerSection" class="mb-6 flex-shrink-0 hidden">
+                <h3 class="text-xl font-semibold text-gray-700 mb-2">Current Lecture: <span id="currentLectureTitle" class="font-normal text-gray-600"></span></h3>
+                <div class="video-container shadow-md">
+                    <div id="youtube-player"></div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2 text-center" id="playerHint">Select a topic on the left to load its video!</p>
+            </div>
+
+            <!-- Content Tabs -->
+            <div id="contentTabs" class="flex border-b border-gray-200 mt-6 flex-shrink-0">
+                <button id="notesTabBtn" class="tab-button active" data-content-type="notes">Notes</button>
+                <button id="flashcardsTabBtn" class="tab-button" data-content-type="flashcards">Flashcards</button>
+                <button id="questionsTabBtn" class="tab-button" data-content-type="questions">Questions</button>
+            </div>
+
+            <!-- Content Display Area -->
+            <div id="contentDisplayArea" class="content-display-area mt-0">
+                <p class="text-gray-500 text-center py-8" id="initialContentMessage">Select a topic on the left and then click a content tab (Notes, Flashcards, Questions) to load content here.</p>
+                <!-- Generated content will be displayed here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Message Box container -->
+    <div id="messageBoxContainer"></div>
+
+    <script type="module">
+        // Import PDF.js
+        import { getDocument } from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+
+        // Set up the worker source for pdf.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+
+        const pdfInput = document.getElementById('pdfInput');
+        const processSyllabusBtn = document.getElementById('processSyllabusBtn');
+        const buttonText = document.getElementById('buttonText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const resultsTitle = document.getElementById('resultsTitle');
+        const videoPlayerSection = document.getElementById('videoPlayerSection');
+        const currentLectureTitle = document.getElementById('currentLectureTitle');
+        const playerHint = document.getElementById('playerHint');
+        const topicsContainer = document.getElementById('topicsContainer');
+        const noResultsMessage = document.getElementById('noResultsMessage');
+        const messageBoxContainer = document.getElementById('messageBoxContainer');
+
+        const notesTabBtn = document.getElementById('notesTabBtn');
+        const flashcardsTabBtn = document.getElementById('flashcardsTabBtn');
+        const questionsTabBtn = document.getElementById('questionsTabBtn');
+        const contentDisplayArea = document.getElementById('contentDisplayArea');
+        const initialContentMessage = document.getElementById('initialContentMessage');
+
+        let syllabusText = '';
+        let youtubePlayer; // Global variable for the YouTube player
+        let isPlayerReady = false; // Flag to track YouTube player readiness
+        let currentVideoToPlay = null; // Stores video details if player isn't ready yet
+        let currentActiveTopic = null; // Stores the currently selected topic for content generation
+
+
+        // Function to extract YouTube video ID from a URL
+        function getYouTubeVideoId(url) {
+            const regex = /(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+            const match = url.match(regex);
+            return match ? match[1] : null;
+        }
+
+        // Function to load and play a video in the iframe
+        function playVideo(videoId, title) {
+            if (isPlayerReady && youtubePlayer && youtubePlayer.loadVideoById) {
+                youtubePlayer.loadVideoById(videoId);
+                currentLectureTitle.textContent = title;
+                videoPlayerSection.classList.remove('hidden');
+                playerHint.classList.add('hidden');
+                console.log(`Playing video: ${title} (${videoId})`);
+            } else {
+                // If player is not ready, store the video to play later
+                currentVideoToPlay = { videoId, title };
+                showMessage('YouTube player is initializing. Please wait a moment.', 'info');
+                console.log('Video queued:', videoId, title);
+            }
+        }
+
+        // Function to handle YouTube player errors
+        function onPlayerError(event) {
+            let errorMessage = 'An unknown YouTube player error occurred.';
+            switch (event.data) {
+                case 2:
+                    errorMessage = 'The video ID is invalid or belongs to a video that does not exist.';
+                    break;
+                case 5:
+                    errorMessage = 'The requested content cannot be played in an HTML5 player or at this specific time.';
+                    break;
+                case 100:
+                    errorMessage = 'The video is private or has been removed.';
+                    break;
+                case 101:
+                case 150:
+                    errorMessage = 'The owner of the video has disabled embedding, or it is restricted from playing in your current location.';
+                    break;
+            }
+            showMessage(`Video Unavailable: ${errorMessage} Please try another topic or search YouTube directly.`, 'error', 7000);
+            console.error('YouTube Player Error:', event.data, errorMessage);
+            // Optionally, you could try to load a default placeholder video here
+            // youtubePlayer.loadVideoById('dQw4w9WgXcQ'); // Example placeholder
+        }
+
+
+        // Initialize the YouTube player
+        window.onYouTubeIframeAPIReady = function() {
+            youtubePlayer = new YT.Player('youtube-player', {
+                height: '360',
+                width: '640',
+                videoId: '', // Will be set dynamically
+                playerVars: {
+                    'playsinline': 1,
+                    'autoplay': 1 // Autoplay the first video loaded
+                },
+                events: {
+                    'onReady': (event) => {
+                        console.log('YouTube player is ready.');
+                        isPlayerReady = true; // Set player ready flag
+
+                        // If there's a video queued, play it now
+                        if (currentVideoToPlay) {
+                            console.log('Attempting to play queued video:', currentVideoToPlay.videoId, currentVideoToPlay.title);
+                            event.target.loadVideoById(currentVideoToPlay.videoId); // Use event.target for robustness
+                            currentLectureTitle.textContent = currentVideoToPlay.title;
+                            videoPlayerSection.classList.remove('hidden');
+                            playerHint.classList.add('hidden');
+                            // After playing, clear the queued video
+                            currentVideoToPlay = null; 
+                        }
+                    },
+                    'onStateChange': (event) => {
+                        // Optional: Add logic for player state changes (playing, paused, ended)
+                    },
+                    'onError': onPlayerError // Register the error handler
+                }
+            });
+        };
+
+        // Function to display messages to the user
+        function showMessage(message, type = 'info', duration = 3000) {
+            const messageBox = document.createElement('div');
+            messageBox.className = `message-box ${type}`;
+            messageBox.textContent = message;
+            messageBoxContainer.appendChild(messageBox);
+
+            setTimeout(() => {
+                messageBox.remove();
+            }, duration);
+        }
+
+        // Function to enable/disable the process button and show loading state
+        function setLoading(isLoading) {
+            processSyllabusBtn.disabled = isLoading;
+            if (isLoading) {
+                buttonText.textContent = 'Processing...';
+                loadingSpinner.classList.remove('hidden');
+            } else {
+                buttonText.textContent = 'Process Syllabus';
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        // Handle PDF file input change
+        pdfInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                processSyllabusBtn.disabled = true;
+                return;
+            }
+
+            if (file.type !== 'application/pdf') {
+                showMessage('Please upload a PDF file.', 'error');
+                processSyllabusBtn.disabled = true;
+                return;
+            }
+
+            if (file.size > 10 * 1024 * 1024) { // 10 MB limit
+                showMessage('File size exceeds 10MB. Please upload a smaller PDF.', 'error');
+                processSyllabusBtn.disabled = true;
+                return;
+            }
+
+            setLoading(true);
+            showMessage('Reading PDF, please wait...', 'info');
+
+            try {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const arrayBuffer = e.target.result;
+                    const pdf = await getDocument(arrayBuffer).promise;
+                    let fullText = '';
+
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        fullText += textContent.items.map(item => item.str).join(' ') + '\n';
+                    }
+                    syllabusText = fullText;
+                    showMessage('PDF successfully read. Ready to process!', 'success');
+                    processSyllabusBtn.disabled = false;
+                    setLoading(false);
+                };
+                reader.readAsArrayBuffer(file);
+
+            } catch (error) {
+                console.error('Error reading PDF:', error);
+                showMessage('Failed to read PDF. Make sure it is a valid PDF.', 'error');
+                processSyllabusBtn.disabled = true;
+                setLoading(false);
+            }
+        });
+
+        // Function to extract the main title using Flask backend
+        async function extractCourseTitle(text) {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/extract_title', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ syllabus_text: text.substring(0, 2000) }) // Limit text
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                return data.title || "Unknown Course";
+            } catch (error) {
+                console.error('Error calling backend for title:', error);
+                return "Unknown Course";
+            }
+        }
+
+        // Function to extract topics using Flask backend
+        async function extractTopics(text) {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/extract_topics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ syllabus_text: text.substring(0, 5000) }) // Limit text
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                return data.topics || [];
+            } catch (error) {
+                console.error('Error calling backend for topics:', error);
+                throw new Error(`Failed to extract topics: ${error.message}`);
+            }
+        }
+
+        // Function to suggest video using Flask backend (now uses YouTube Data API primarily)
+        async function suggestVideo(topic) {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/suggest_video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic: topic })
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                return { title: data.title, url: data.url };
+            } catch (error) {
+                console.error(`Error calling backend for video for topic "${topic}":`, error);
+                return { title: 'Failed to suggest video', url: '#' };
+            }
+        }
+
+        // New function to generate notes via backend
+        async function generateNotes(topic) {
+            initialContentMessage.classList.add('hidden');
+            contentDisplayArea.innerHTML = '<div class="flex justify-center items-center py-8"><div class="loading-spinner"></div><p class="ml-3 text-gray-600">Generating notes...</p></div>';
+            currentActiveTopic = topic; // Set active topic for this content type
+            
+            try {
+                const response = await fetch('http://127.0.0.1:5000/generate_notes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic: topic })
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                // Use marked.js to convert Markdown to HTML
+                const formattedNotes = marked.parse(data.notes || '');
+                contentDisplayArea.innerHTML = formattedNotes;
+            } catch (error) {
+                console.error('Error generating notes:', error);
+                contentDisplayArea.innerHTML = `<p class="text-red-600">Failed to generate notes: ${error.message}</p>`;
+            }
+        }
+
+        // New function to generate flashcards via backend
+        async function generateFlashcards(topic) {
+            initialContentMessage.classList.add('hidden');
+            contentDisplayArea.innerHTML = '<div class="flex justify-center items-center py-8"><div class="loading-spinner"></div><p class="ml-3 text-gray-600">Generating flashcards...</p></div>';
+            currentActiveTopic = topic; // Set active topic for this content type
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/generate_flashcards', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic: topic })
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                if (data.flashcards && data.flashcards.length > 0) {
+                    contentDisplayArea.innerHTML = ''; // Clear loading
+                    data.flashcards.forEach((card, index) => {
+                        const flashcardDiv = document.createElement('div');
+                        flashcardDiv.className = 'flashcard';
+                        flashcardDiv.innerHTML = `
+                            <p class="flashcard-front">${card.front}</p>
+                            <p class="flashcard-back">${card.back}</p>
+                        `;
+                        flashcardDiv.addEventListener('click', () => {
+                            flashcardDiv.classList.toggle('flipped');
+                        });
+                        contentDisplayArea.appendChild(flashcardDiv);
+                    });
+                } else {
+                    contentDisplayArea.innerHTML = '<p>No flashcards could be generated for this topic.</p>';
+                }
+            } catch (error) {
+                console.error('Error generating flashcards:', error);
+                contentDisplayArea.innerHTML = `<p class="text-red-600">Failed to generate flashcards: ${error.message}</p>`;
+            }
+        }
+
+        // New function to generate questions via backend
+        async function generateQuestions(topic) {
+            initialContentMessage.classList.add('hidden');
+            contentDisplayArea.innerHTML = '<div class="flex justify-center items-center py-8"><div class="loading-spinner"></div><p class="ml-3 text-gray-600">Generating questions...</p></div>';
+            currentActiveTopic = topic; // Set active topic for this content type
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/generate_questions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic: topic })
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                if (data.questions && data.questions.length > 0) {
+                    contentDisplayArea.innerHTML = ''; // Clear loading
+                    const ul = document.createElement('ul');
+                    ul.className = 'list-disc pl-5 space-y-2';
+                    data.questions.forEach(q => {
+                        const li = document.createElement('li');
+                        li.textContent = q;
+                        ul.appendChild(li);
+                    });
+                    contentDisplayArea.appendChild(ul);
+                } else {
+                    contentDisplayArea.innerHTML = '<p>No questions could be generated for this topic.</p>';
+                }
+            } catch (error) {
+                console.error('Error generating questions:', error);
+                contentDisplayArea.innerHTML = `<p class="text-red-600">Failed to generate questions: ${error.message}</p>`;
+            }
+        }
+
+
+        // Process button click
+        processSyllabusBtn.addEventListener('click', async () => {
+            if (!syllabusText) {
+                showMessage('Please upload a PDF first.', 'error');
+                return;
+            }
+
+            setLoading(true);
+            topicsContainer.innerHTML = ''; // Clear previous results
+            resultsTitle.classList.add('hidden');
+            videoPlayerSection.classList.add('hidden');
+            playerHint.classList.add('hidden');
+            noResultsMessage.classList.add('hidden');
+            currentLectureTitle.textContent = ''; // Clear current lecture title
+            initialContentMessage.classList.remove('hidden'); // Show initial message in content area
+            contentDisplayArea.innerHTML = ''; // Clear content area
+
+            showMessage('Extracting title and topics...', 'info');
+
+            try {
+                // Extract course title first
+                const courseTitle = await extractCourseTitle(syllabusText);
+                resultsTitle.textContent = courseTitle || "Syllabus-Generated Course Content";
+                
+                const topics = await extractTopics(syllabusText);
+
+                if (topics.length === 0) {
+                    showMessage('No distinct topics could be extracted from the syllabus.', 'info');
+                    noResultsMessage.classList.remove('hidden');
+                    setLoading(false);
+                    return;
+                }
+
+                resultsTitle.classList.remove('hidden'); // Show title once extracted
+                showMessage(`Found ${topics.length} topics. Suggesting videos...`, 'info');
+
+                let firstVideoId = null;
+                let firstVideoTitle = null;
+
+                for (const topic of topics) {
+                    const video = await suggestVideo(topic);
+                    const videoId = getYouTubeVideoId(video.url);
+
+                    const topicCard = document.createElement('div');
+                    // Removed cursor-pointer from card, now only video link is clickable for video
+                    topicCard.className = 'bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200'; 
+                    topicCard.innerHTML = `
+                        <h3 class="text-lg font-semibold text-gray-700 mb-1">${topic}</h3>
+                        <p class="text-sm text-gray-600">Video: <span class="text-blue-600 hover:underline cursor-pointer video-link" data-video-id="${videoId}" data-video-title="${video.title || topic}">${video.title || 'Click to play'}</span></p>
+                        
+                        <div class="mt-3 flex space-x-2">
+                            <button class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors text-sm topic-content-btn" data-topic="${topic}" data-content-type="notes">Notes</button>
+                            <button class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors text-sm topic-content-btn" data-topic="${topic}" data-content-type="flashcards">Flashcards</button>
+                            <button class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors text-sm topic-content-btn" data-topic="${topic}" data-content-type="questions">Questions</button>
+                        </div>
+                    `;
+                    // Attach click listener only to the video link, not the entire card for video playback
+                    const videoLink = topicCard.querySelector('.video-link');
+                    if (videoId && videoLink) {
+                        videoLink.addEventListener('click', (e) => {
+                            e.preventDefault(); // Prevent default link behavior
+                            playVideo(videoLink.dataset.videoId, videoLink.dataset.videoTitle);
+                        });
+                    } else if (videoLink) {
+                         videoLink.classList.remove('text-blue-600', 'hover:underline', 'cursor-pointer');
+                         videoLink.classList.add('text-gray-400'); // Style unavailable link
+                         videoLink.textContent = 'No valid video found.';
+                         videoLink.style.pointerEvents = 'none'; // Disable click
+                    }
+
+                    if (videoId && !firstVideoId) { // Set the first valid video to autoplay
+                        firstVideoId = videoId;
+                        firstVideoTitle = video.title;
+                    }
+                    topicsContainer.appendChild(topicCard);
+                }
+
+                // Attach event listeners to the new content buttons for dynamic loading
+                document.querySelectorAll('.topic-content-btn').forEach(button => {
+                    button.addEventListener('click', (event) => {
+                        const topic = event.target.dataset.topic;
+                        const contentType = event.target.dataset.contentType;
+                        
+                        // Set the active tab button style
+                        notesTabBtn.classList.remove('active');
+                        flashcardsTabBtn.classList.remove('active');
+                        questionsTabBtn.classList.remove('active');
+                        document.getElementById(`${contentType}TabBtn`).classList.add('active');
+
+                        // Call the appropriate generation function
+                        if (contentType === 'notes') {
+                            generateNotes(topic);
+                        } else if (contentType === 'flashcards') {
+                            generateFlashcards(topic);
+                        } else if (contentType === 'questions') {
+                            generateQuestions(topic);
+                        }
+                    });
+                });
+
+
+                if (firstVideoId) {
+                    // Autoplay the first video if available
+                    playVideo(firstVideoId, firstVideoTitle || topics[0]);
+                } else {
+                    videoPlayerSection.classList.remove('hidden');
+                    playerHint.classList.remove('hidden'); // Show hint if no video to auto-play
+                    showMessage('No valid videos could be suggested for any topic.', 'info');
+                }
+
+                showMessage('Course compilation complete! Select a topic and content type.', 'success');
+
+            } catch (error) {
+                console.error('Overall processing error:', error);
+                showMessage(`Error during processing: ${error.message}`, 'error');
+                noResultsMessage.classList.remove('hidden');
+                videoPlayerSection.classList.add('hidden'); // Hide player if error occurs
+            } finally {
+                setLoading(false);
+            }
+        });
+
+        // Event listeners for top-level content tabs
+        notesTabBtn.addEventListener('click', () => {
+            notesTabBtn.classList.add('active');
+            flashcardsTabBtn.classList.remove('active');
+            questionsTabBtn.classList.remove('active');
+            if (currentActiveTopic) {
+                generateNotes(currentActiveTopic);
+            } else {
+                initialContentMessage.classList.remove('hidden');
+                contentDisplayArea.innerHTML = '';
+            }
+        });
+
+        flashcardsTabBtn.addEventListener('click', () => {
+            notesTabBtn.classList.remove('active');
+            flashcardsTabBtn.classList.add('active');
+            questionsTabBtn.classList.remove('active');
+            if (currentActiveTopic) {
+                generateFlashcards(currentActiveTopic);
+            } else {
+                initialContentMessage.classList.remove('hidden');
+                contentDisplayArea.innerHTML = '';
+            }
+        });
+
+        questionsTabBtn.addEventListener('click', () => {
+            notesTabBtn.classList.remove('active');
+            flashcardsTabBtn.classList.remove('active');
+            questionsTabBtn.classList.add('active');
+            if (currentActiveTopic) {
+                generateQuestions(currentActiveTopic);
+            } else {
+                initialContentMessage.classList.remove('hidden');
+                contentDisplayArea.innerHTML = '';
+            }
+        });
+
+
+        // Initial state message for content area
+        initialContentMessage.classList.remove('hidden');
+        noResultsMessage.classList.remove('hidden');
+
+    </script>
+</body>
+</html>
